@@ -44,25 +44,36 @@ job-hunter/
 ├── assets/
 │   └── resume_template.html        # Standardized Harvard/Jake's single-column ATS template
 └── scripts/
+    ├── doctor.py                   # 1-command environment & dependency verifier (Windows/macOS/Linux)
     ├── parse_resume.py             # Cross-platform PDF/DOCX/MD parser & SHA-256 cache manager
-    ├── inspect_ats_form.py         # 3-platform query generator, HTML stripper & caution analyzer
+    ├── inspect_ats_form.py         # 3-platform query generator, fallback searcher & caution analyzer
     ├── build_resume.py             # Differential JSON patch -> MD + HTML + headless Chrome/Edge PDF compiler
     └── apply_helper.py             # Approval-gated browser autofill, OS file reveal & Copilot dashboard
 ```
 
 ---
 
-## 🚀 Installation & Usage
+## 🚀 Installation & New Laptop Setup (Windows & macOS)
 
-### Install into `.agents/skills/` (or `~/.gemini/config/skills/` / `~/.claude/skills/`)
-
+### 1. Clone into your project's `.agents/skills/` folder
 ```bash
 git clone https://github.com/vamshicreates/job-hunter.git .agents/skills/job-hunter
 ```
 
-### How to Trigger
+### 2. Run the 1-Command Readiness Check (`doctor.py`)
+- **Windows (PowerShell / CMD):**
+  ```powershell
+  python .agents/skills/job-hunter/scripts/doctor.py
+  ```
+- **macOS / Linux:**
+  ```bash
+  python3 .agents/skills/job-hunter/scripts/doctor.py
+  ```
+*(This automatically verifies Python 3.9+, locates Chrome or pre-installed Windows Microsoft Edge for PDF rendering, auto-bootstraps `pypdf` into `.job-hunter/.deps` on Windows/Linux for Canva/Word/LaTeX PDFs, and creates the `resumes/` folder.)*
 
-1. Drop your resume (`.pdf`, `.docx`, or `.md`) into your project workspace or `./resumes/` folder.
+### 3. How to Trigger
+
+1. Drop your resume (`.pdf`, `.docx`, or `.md`) into the `./resumes/` folder.
 2. Prompt your agent:
    > *"Run job-hunter on my resume and find 5 matching roles."*
 3. Review the **5-Job Caution Brief** and generated **ATS PDF resumes**, then reply:

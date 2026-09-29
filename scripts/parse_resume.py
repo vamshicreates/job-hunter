@@ -11,7 +11,7 @@ Behavior:
   2. Computes SHA-256 hash. If .job-hunter/candidate_profile.json exists with the same
      source_hash (and --force is not set), returns CACHE_HIT with a compact summary (~250 tokens).
   3. Otherwise extracts clean plain text using cross-platform extractors:
-     - PDF: pypdf/fitz/pdfplumber (if installed) -> macOS Quartz PDFKit -> pdftotext CLI -> Pure-Python zlib PDF stream parser (works on Windows out-of-the-box).
+     - PDF: pypdf/fitz/pdfplumber -> macOS Quartz PDFKit -> auto-bootstrapped pypdf in .job-hunter/.deps (for Windows/Linux Canva/LaTeX/Word PDFs) -> pdftotext CLI -> Pure-Python zlib PDF stream parser.
      - DOCX: Pure-Python zipfile + XML parser (works on Windows, macOS, Linux with zero dependencies).
      - RTF/DOC: macOS textutil / Windows PowerShell RichTextBox / pure-Python RTF stripper.
 """
@@ -65,6 +65,48 @@ def file_sha256(filepath: Path) -> str:
     return h.hexdigest()
 
 
+def ensure_local_pypdf(state_dir: Path) -> bool:
+    """
+    Auto-bootstraps pure-Python `pypdf` into `<state_dir>/.deps` on Windows/Linux if not installed,
+    bypassing virtualenv/PEP-668 restrictions and requiring zero manual pip setup by the user.
+    """
+    deps_dir = state_dir / ".deps"
+    if str(deps_dir.resolve()) not in sys.path:
+        sys.path.insert(0, str(deps_dir.resolve()))
+    try:
+        import pypdf  # type: ignore # noqa: F401
+        return True
+    except ImportError:
+        pass
+
+    try:
+        deps_dir.mkdir(parents=True, exist_ok=True)
+        res = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--disable-pip-version-check",
+                "--target",
+                str(deps_dir.resolve()),
+                "pypdf",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=35,
+        )
+        if res.returncode == 0:
+            import importlib
+            importlib.invalidate_caches()
+            import pypdf  # type: ignore # noqa: F401
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _decode_pdf_literal(s: str) -> str:
     """Decode PDF literal string escapes like \\n, \\r, \\(, \\), and octal \\ddd."""
     def replace_octal(m):
@@ -84,14 +126,11 @@ def _decode_pdf_literal(s: str) -> str:
 
 def extract_pdf_pure_python(filepath: Path) -> str:
     """
-    Pure-Python stdlib fallback PDF text extractor for Windows/Linux when no third-party
-    PDF libraries or CLI tools are installed. Decompresses FlateDecode streams and extracts
-    Tj / TJ text blocks.
+    Pure-Python stdlib fallback PDF text extractor when offline and no PDF libraries are present.
     """
     raw_bytes = filepath.read_bytes()
     streams = []
 
-    # Find all stream ... endstream blocks
     for m in re.finditer(rb"stream[\r\n]+(.*?)[\r\n]+endstream", raw_bytes, re.DOTALL):
         stream_data = m.group(1)
         decompressed = None
@@ -112,10 +151,8 @@ def extract_pdf_pure_python(filepath: Path) -> str:
     for content in streams:
         if "BT" not in content:
             continue
-        # Process each BT ... ET text object
         for bt_block in re.findall(r"BT(.*?)ET", content, re.DOTALL):
             pieces = []
-            # Match either (...) Tj or [(...)] TJ
             for token_match in re.finditer(r"\[(.*?)\]\s*TJ|\((?:\\.|[^\\()])*\)\s*Tj", bt_block, re.DOTALL):
                 tj_array = token_match.group(1)
                 if tj_array is not None:
@@ -130,41 +167,16 @@ def extract_pdf_pure_python(filepath: Path) -> str:
                 extracted_lines.append(line)
 
     result = "\n".join(extracted_lines)
-    # Remove non-printable control chars except newline/tab
     result = "".join(ch for ch in result if ch == "\n" or ch == "\t" or (32 <= ord(ch) <= 126) or ord(ch) >= 160)
     return result.strip()
 
 
-def extract_pdf_text(filepath: Path) -> str:
-    # Method 1: Optional Python libraries (cross-platform: Windows, macOS, Linux)
-    try:
-        import pypdf  # type: ignore
-        reader = pypdf.PdfReader(str(filepath))
-        text = "\n".join((page.extract_text() or "") for page in reader.pages).strip()
-        if text:
-            return text
-    except Exception:
-        pass
+def extract_pdf_text(filepath: Path, state_dir: Path) -> str:
+    deps_dir = state_dir / ".deps"
+    if deps_dir.exists() and str(deps_dir.resolve()) not in sys.path:
+        sys.path.insert(0, str(deps_dir.resolve()))
 
-    try:
-        import fitz  # PyMuPDF # type: ignore
-        doc = fitz.open(str(filepath))
-        text = "\n".join(page.get_text() for page in doc).strip()
-        if text:
-            return text
-    except Exception:
-        pass
-
-    try:
-        import pdfplumber  # type: ignore
-        with pdfplumber.open(str(filepath)) as pdf:
-            text = "\n".join((p.extract_text() or "") for p in pdf.pages).strip()
-            if text:
-                return text
-    except Exception:
-        pass
-
-    # Method 2: macOS native Quartz PDFKit via osascript
+    # Method 1: macOS native Quartz PDFKit via osascript (instant on macOS)
     if sys.platform == "darwin":
         jxa_script = f"""
         ObjC.import('Foundation');
@@ -197,7 +209,38 @@ def extract_pdf_text(filepath: Path) -> str:
         except Exception:
             pass
 
-    # Method 3: pdftotext CLI (if installed via Poppler / Git for Windows / Scoop / Chocolatey / Linux)
+    # Method 2: Python PDF libraries (or auto-bootstrap pypdf into .job-hunter/.deps on Windows/Linux)
+    for pkg_attempt in (False, True):
+        if pkg_attempt:
+            ensure_local_pypdf(state_dir)
+        try:
+            import pypdf  # type: ignore
+            reader = pypdf.PdfReader(str(filepath))
+            text = "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+            if text:
+                return text
+        except Exception:
+            pass
+
+    try:
+        import fitz  # PyMuPDF # type: ignore
+        doc = fitz.open(str(filepath))
+        text = "\n".join(page.get_text() for page in doc).strip()
+        if text:
+            return text
+    except Exception:
+        pass
+
+    try:
+        import pdfplumber  # type: ignore
+        with pdfplumber.open(str(filepath)) as pdf:
+            text = "\n".join((p.extract_text() or "") for p in pdf.pages).strip()
+            if text:
+                return text
+    except Exception:
+        pass
+
+    # Method 3: pdftotext CLI
     try:
         res = subprocess.run(
             ["pdftotext", str(filepath), "-"],
@@ -210,14 +253,12 @@ def extract_pdf_text(filepath: Path) -> str:
     except Exception:
         pass
 
-    # Method 4: Pure-Python stdlib zlib stream parser (works on Windows out-of-the-box)
+    # Method 4: Pure-Python stdlib zlib stream parser (offline fallback)
     text = extract_pdf_pure_python(filepath)
     if len(text) >= 40:
         return text
 
-    raise RuntimeError(
-        f"Could not extract text from PDF {filepath}. On Windows, install pypdf (`pip install pypdf`) if the PDF uses custom font encodings."
-    )
+    raise RuntimeError(f"Could not extract text from PDF {filepath}.")
 
 
 def extract_docx_or_rtf_text(filepath: Path) -> str:
@@ -254,7 +295,7 @@ def extract_docx_or_rtf_text(filepath: Path) -> str:
         except Exception:
             pass
 
-    # Method 3: Windows PowerShell RichTextBox / Word COM fallback for .rtf / .doc
+    # Method 3: Windows PowerShell RichTextBox for .rtf
     if sys.platform == "win32" and ext == ".rtf":
         ps_cmd = (
             "Add-Type -AssemblyName System.Windows.Forms; "
@@ -287,10 +328,10 @@ def extract_docx_or_rtf_text(filepath: Path) -> str:
     raise RuntimeError(f"Could not extract text from {filepath}")
 
 
-def extract_text(filepath: Path) -> str:
+def extract_text(filepath: Path, state_dir: Path) -> str:
     ext = filepath.suffix.lower()
     if ext == ".pdf":
-        raw = extract_pdf_text(filepath)
+        raw = extract_pdf_text(filepath, state_dir)
     elif ext in {".docx", ".doc", ".rtf"}:
         raw = extract_docx_or_rtf_text(filepath)
     else:
@@ -374,7 +415,7 @@ def main():
         except Exception:
             pass
 
-    raw_text = extract_text(resume_file)
+    raw_text = extract_text(resume_file, state_dir)
     hints = extract_contact_hints(raw_text)
 
     raw_extract_path = state_dir / "raw_resume_extract.json"

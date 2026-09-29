@@ -121,7 +121,7 @@ python3 .agents/skills/job-hunter/scripts/parse_resume.py . --state-dir .job-hun
    ```bash
    python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --generate-queries --profile .job-hunter/candidate_profile.json
    ```
-2. Execute `search_web` in parallel across the 3 platforms:
+2. Execute `search_web` in parallel across the 3 platforms (or if running in an agent environment without a built-in `search_web` tool, run `python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --search --profile .job-hunter/candidate_profile.json`):
    - **Platform 1 — LinkedIn Jobs:** Active role listings (`linkedin.com/jobs/view/...`)
    - **Platform 2 — Direct ATS Boards (Highest Reliability):** `boards.greenhouse.io`, `job-boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`
    - **Platform 3 — Wellfound / YC Work at a Startup (Highest Startup Response):** `wellfound.com/jobs`, `workatastartup.com/jobs`

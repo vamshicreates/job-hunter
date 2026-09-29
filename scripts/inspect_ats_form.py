@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-inspect_ats_form.py — Token-minimal 3-platform search query generator & ATS form/caution inspector.
+inspect_ats_form.py — Token-minimal 3-platform search query generator, fallback web searcher & ATS form/caution inspector.
 
 Modes:
   1. Generate targeted 3-platform search queries from candidate_profile.json:
      python3 inspect_ats_form.py --generate-queries --profile .job-hunter/candidate_profile.json
 
-  2. Inspect candidate job URLs (strips 95% HTML bloat, extracts JD requirements, form inputs,
+  2. Built-in fallback web search across the 3 platforms (for agents without a native search_web tool):
+     python3 inspect_ats_form.py --search --profile .job-hunter/candidate_profile.json
+
+  3. Inspect candidate job URLs (strips 95% HTML bloat, extracts JD requirements, form inputs,
      and automated caution/knockout warnings):
      python3 inspect_ats_form.py --urls <url1> <url2> ... [--state-dir .job-hunter]
 """
@@ -139,7 +142,6 @@ def analyze_cautions(full_text: str, form_fields: list, url: str) -> dict:
     knockout_risks = []
     required_items = []
 
-    # 1. Visa / Work Authorization Knockouts
     if any(
         kw in text_l
         for kw in [
@@ -158,7 +160,6 @@ def analyze_cautions(full_text: str, form_fields: list, url: str) -> dict:
             "Work Authorization / Sponsorship Restriction: Listing explicitly mentions sponsorship limits, citizenship, or clearance requirements."
         )
 
-    # 2. Strict On-Site / Location Mandates
     if any(
         kw in text_l
         for kw in [
@@ -174,7 +175,6 @@ def analyze_cautions(full_text: str, form_fields: list, url: str) -> dict:
             "Strict On-Site Mandate: Job requires in-office attendance or strict geographic residency."
         )
 
-    # 3. Ghost Job / Talent Pool / Stale Signals
     if any(
         kw in text_l
         for kw in [
@@ -190,7 +190,6 @@ def analyze_cautions(full_text: str, form_fields: list, url: str) -> dict:
             "Possible Evergreen / Ghost Listing: Contains talent-pool or old-posting indicators; verify recent hiring activity on LinkedIn before investing heavy time."
         )
 
-    # 4. Staffing / Recruiting Agency Check
     if any(
         kw in text_l
         for kw in [
@@ -205,13 +204,11 @@ def analyze_cautions(full_text: str, form_fields: list, url: str) -> dict:
             "Third-Party Staffing Agency: Listing appears to be posted by an external recruiter rather than the direct hiring company."
         )
 
-    # 5. Extra Application Friction (Video, Take-Home, Cover Letter, Links)
     if any(kw in text_l for kw in ["loom video", "video introduction", "short video", "record a video"]):
         cautions.append("High Friction: Application requests a recorded video / Loom introduction.")
     if any(kw in text_l for kw in ["take-home assignment", "take home project", "coding challenge"]):
         cautions.append("Process Note: Hiring pipeline mentions a take-home assignment or coding test.")
 
-    # Inspect extracted form inputs for required fields
     seen_labels = set()
     for f in form_fields:
         label = (f.get("nearest_label") or f.get("placeholder") or f.get("name") or "").strip()
@@ -259,7 +256,7 @@ def inspect_single_url(url: str) -> dict:
         url,
         headers={
             "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             ),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -268,7 +265,7 @@ def inspect_single_url(url: str) -> dict:
     )
     try:
         with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
-            raw_bytes = resp.read(350_000)  # Cap at 350KB to stay fast & light
+            raw_bytes = resp.read(350_000)
             html_str = raw_bytes.decode("utf-8", errors="replace")
             final_url = resp.geturl()
     except Exception as e:
@@ -289,7 +286,6 @@ def inspect_single_url(url: str) -> dict:
     full_text = " ".join(parser.text_chunks)
     caution_report = analyze_cautions(full_text, parser.form_fields, final_url)
 
-    # Deduplicate form fields for compact output
     compact_fields = []
     seen = set()
     for f in parser.form_fields:
@@ -309,7 +305,9 @@ def inspect_single_url(url: str) -> dict:
         "platform": platform,
         "fetch_status": "OK",
         "page_title": html.unescape(parser.title.strip())[:160],
-        "meta_description": html.unescape(parser.meta_info.get("og:description") or parser.meta_info.get("description") or "")[:300],
+        "meta_description": html.unescape(
+            parser.meta_info.get("og:description") or parser.meta_info.get("description") or ""
+        )[:300],
         "compact_jd_excerpt": full_text[:2200],
         "form_fields_count": len(compact_fields),
         "form_fields_preview": compact_fields[:15],
@@ -356,15 +354,56 @@ def generate_queries(profile_path: Path, state_dir: Path) -> dict:
             ).strip(),
             "platform_3_wellfound_yc": (
                 f"(site:wellfound.com/jobs OR site:workatastartup.com/jobs) "
-                f"({ primary_role }) ({loc_str})"
+                f"({primary_role}) ({loc_str})"
             ).strip(),
         },
     }
 
 
+def ddg_search_single(query: str, seen_set: set[str], max_hits: int = 5) -> list[dict]:
+    """Built-in zero-API-key fallback web search via DuckDuckGo HTML endpoint."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    data = urllib.parse.urlencode({"q": query}).encode("utf-8")
+    req = urllib.request.Request(
+        "https://html.duckduckgo.com/html/",
+        data=data,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+    hits = []
+    try:
+        with urllib.request.urlopen(req, timeout=12, context=ctx) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+        for m in re.finditer(
+            r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', body, re.DOTALL
+        ):
+            raw_href, raw_title = m.group(1), m.group(2)
+            if "uddg=" in raw_href:
+                parsed = urllib.parse.parse_qs(urllib.parse.urlparse(raw_href).query)
+                real_url = parsed.get("uddg", [raw_href])[0]
+            else:
+                real_url = html.unescape(raw_href)
+            title = html.unescape(re.sub(r"<[^>]+>", "", raw_title)).strip()
+            if real_url.startswith("http") and real_url not in seen_set:
+                hits.append({"title": title, "url": real_url, "platform": detect_platform(real_url)})
+                if len(hits) >= max_hits:
+                    break
+    except Exception as e:
+        hits.append({"error": str(e), "query": query})
+    return hits
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Generate 3-platform queries or inspect ATS job URLs.")
+    ap = argparse.ArgumentParser(description="Generate 3-platform queries, search directly, or inspect ATS job URLs.")
     ap.add_argument("--generate-queries", action="store_true", help="Generate search queries from profile")
+    ap.add_argument("--search", action="store_true", help="Run built-in 3-platform fallback web search directly")
     ap.add_argument("--profile", default=".job-hunter/candidate_profile.json", help="Path to candidate_profile.json")
     ap.add_argument("--urls", nargs="+", help="List of job URLs to inspect in parallel")
     ap.add_argument("--state-dir", default=".job-hunter", help="Path to state directory")
@@ -392,13 +431,22 @@ def main():
         print(json.dumps(out, indent=2))
         return
 
+    if args.search:
+        qdata = generate_queries(Path(args.profile), state_dir)
+        seen_set = set(qdata.get("previously_seen_urls_to_skip", []))
+        queries = qdata["recommended_search_queries"]
+        discovered = {}
+        for k, q in queries.items():
+            discovered[k] = ddg_search_single(q, seen_set, max_hits=5)
+        print(json.dumps({"queries": queries, "discovered_jobs": discovered}, indent=2))
+        return
+
     if args.urls:
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
             future_to_url = {pool.submit(inspect_single_url, u): u for u in args.urls}
             for fut in concurrent.futures.as_completed(future_to_url):
                 results.append(fut.result())
-        # Preserve input URL order
         url_order = {u: i for i, u in enumerate(args.urls)}
         results.sort(key=lambda r: url_order.get(r.get("url"), 999))
         print(json.dumps({"inspected_jobs": results}, indent=2))
