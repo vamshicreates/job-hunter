@@ -1,11 +1,24 @@
 ---
 name: job-hunter
-description: Cross-platform (Windows, macOS, Linux) token-minimal job hunting, standardized ATS resume tailoring, application caution recon, and approval-gated browser pre-fill skill. Activate whenever the user provides a resume in the local folder or asks to find matching jobs, hunt for job openings, tailor their resume for top roles, analyze job application risks/cautions, or apply to jobs. Always finds strictly 5 high-fit job profiles per run across LinkedIn, Direct ATS Boards (Greenhouse/Lever/Ashby), and Wellfound/YC.
+description: Cross-platform (Windows, macOS, Linux) token-minimal job hunting, standardized ATS resume tailoring, application caution recon, and approval-gated browser pre-fill skill. Activate whenever the user provides a resume in the local folder, provides specific job titles/professions to search for (e.g., "Voice over artist", "Podcaster", "Content Manager in Hyderabad"), asks to find matching jobs, hunt for job openings, tailor their resume for top roles, analyze application risks/cautions, or apply to jobs. Always finds strictly 5 high-fit job profiles per run across LinkedIn, Direct ATS Boards (Greenhouse/Lever/Ashby), and Wellfound/YC.
 ---
 
 # Job Hunter (`job-hunter`)
 
-A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven workflow that reads a user's local resume once, finds **strictly 5 high-fit, active job profiles** across the top 3 high-response platforms, generates **5 standardized ATS-friendly resumes (PDF + Markdown + HTML)** via differential JSON patching, produces an **Application Caution & Knockout Brief**, and pre-fills approved applications in the browser (pausing at the final **Submit** button).
+A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven workflow that searches across the top 3 high-response platforms using either **local candidate resumes** or **explicit user-provided job titles/professions**, finds **strictly 5 high-fit, active job profiles**, generates **5 standardized ATS-friendly resumes (PDF + Markdown + HTML)** via differential JSON patching, produces an **Application Caution & Knockout Brief**, and pre-fills approved applications in the browser (pausing at the final **Submit** button).
+
+---
+
+## Supported Search Modes
+
+1. **Explicit Title / Profession Mode (User-Specified Roles):**
+   - Whenever the user gives specific job titles, professions, or query pivots (e.g. *"Voice over artist"*, *"Podcaster"*, *"Find Content Lead or Social Media Manager roles in Hyderabad"*, *"Senior DevOps Engineer"*), the skill immediately prioritizes and hunts for those exact job titles across the top 3 platforms.
+   - If a candidate profile already exists or is provided, the skill automatically updates `search_targets.target_roles` and tailors the 5 ATS resumes specifically to those requested titles.
+   - If no resume is provided, the skill still performs the full 3-platform discovery, headless browser DOM verification, and outputs the top 5 verified live job requisitions.
+2. **Resume-Driven Mode:**
+   - Reads the local candidate resume once, caches the structured profile in `.job-hunter/candidate_profile.json`, extracts target titles and YoE, and finds matching opportunities.
+3. **Hybrid Re-Targeting Mode:**
+   - The user can iteratively pivot target titles (e.g., *"Now find Voice Over Artist / Podcaster roles for this profile"*) without re-parsing raw files.
 
 ---
 
@@ -18,6 +31,7 @@ A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven w
   - `.docx`: Parsed via pure-Python `zipfile` + `xml.etree.ElementTree` on all OSes.
   - `.pdf`: Uses `pypdf`/`fitz`/`pdfplumber` if installed $\rightarrow$ macOS Quartz `PDFKit` $\rightarrow$ `pdftotext` $\rightarrow$ built-in pure-Python `zlib` PDF stream parser on Windows/Linux.
   - `.rtf` / `.doc`: Uses PowerShell `System.Windows.Forms.RichTextBox` on Windows, `textutil` on macOS, or pure-Python RTF stripping.
+  - Images (`.png`, `.jpg`): Extracted via vision or transcribed directly into `.job-hunter/candidate_profile.json`.
 - **Zero-Dependency Headless PDF Rendering (`build_resume.py`):**
   - Automatically detects **Google Chrome**, **Microsoft Edge (`msedge.exe` — pre-installed on all Windows 10/11 PCs)**, or **Brave** via standard paths and Windows Registry (`winreg`), and converts `file:///C:/...` URIs cleanly via `.as_uri()`.
 - **Approval-Gated Pre-Fill (`apply_helper.py`):**
@@ -29,8 +43,8 @@ A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven w
 ## Core Guardrails (Non-Negotiable)
 
 1. **Strictly 5 Job Profiles per Run:** Never dump 15+ vague links or stop at 2. Every run must shortlist and process **exactly 5** verified, active job profiles (skipping URLs already recorded in `.job-hunter/seen_jobs.json`).
-2. **Experience (YoE) Cutoff & Seniority Precision:** Filter and match job roles precisely to the candidate's verified Years of Experience (YoE). If the candidate has 4 years, shortlist roles requiring 3–5, 3–6, 4–7, or 4+ years; strictly reject over-senior positions (8–12+ or 10+ year lead/architect listings) unless requested.
-3. **Strict Location Enforcement:** All shortlisted roles must strictly match the candidate's target location (e.g. Hyderabad, Bengaluru, Remote) and must be verified against the job description body.
+2. **Explicit Title & Seniority Precision:** When the user supplies explicit job titles (e.g., "Voice Over Artist", "Podcaster"), match those exact titles. Filter experience (YoE) precisely to the candidate's verified background.
+3. **Strict Location Enforcement:** All shortlisted roles must strictly match the candidate's target location (e.g. Hyderabad, Bengaluru, Remote, Indian companies only) and must be verified against the job description body.
 4. **Mandatory Browser DOM Verification:** Every candidate job URL must be verified via `inspect_ats_form.py --verify-browser --urls <urls>` in a headless browser (Google Chrome or Microsoft Edge) to verify that the requisition is active (HTTP 200), that the apply/interest button is physically present in the DOM (`id="topbar-apply"`, `class="apply-button"`, `class="js-oneclick"`), and that the submission flow is open and submittable.
 5. **Clean PDF Isolation:** Resumes must always have their ATS `.pdf` files automatically saved into a dedicated `PDFs/` subfolder (e.g., `<outdir>/PDFs/`), keeping them cleanly isolated from markdown and HTML for instant 1-click attachment.
 6. **Direct 1-Click Copyable Links in Chat:** Always present verified live job links one by one in clean, copyable code blocks in chat alongside clickable paths to the corresponding tailored PDF.
@@ -45,92 +59,36 @@ A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven w
 
 ## The 5-Stage Workflow
 
-### Stage 1: Resume Ingestion & Profile Cache (~300 tokens)
+### Stage 1: Ingestion & Target Role Formulation (~300 tokens)
 
-Run `parse_resume.py` on the local folder or user-specified resume path (use `python` on Windows, `python3` on macOS/Linux):
-
-```bash
-python3 .agents/skills/job-hunter/scripts/parse_resume.py . --state-dir .job-hunter
-```
-
-- **If `status == "CACHE_HIT"`**: Do **not** read the raw resume file again. Proceed immediately to Stage 2 using `.job-hunter/candidate_profile.json`.
-- **If `status == "CACHE_MISS_EXTRACTED"`**: Read the extracted text from the script output and write `.job-hunter/candidate_profile.json` using this exact schema:
-
-```json
-{
-  "source_file": "path/to/resume.pdf",
-  "source_hash": "<sha256_from_parse_resume>",
+- **If a local resume is provided:** Run `parse_resume.py`:
+  ```bash
+  python3 .agents/skills/job-hunter/scripts/parse_resume.py . --state-dir .job-hunter
+  ```
+- **If user provides explicit target titles/professions:** (e.g. *"Voice over artist, Podcaster"*, *"Frontend Developer in Hyderabad"*):
+  Update `.job-hunter/candidate_profile.json` with the new target roles:
+  ```json
   "search_targets": {
-    "target_roles": ["Primary Role Title", "Secondary Role Title", "Adjacent Role Title"],
-    "seniority": "Junior | Mid-Level | Senior | Staff | Lead",
-    "years_of_experience": 4,
-    "locations": ["Remote", "City/Country"],
-    "core_keywords": ["Skill1", "Skill2", "Skill3", "Skill4"]
-  },
-  "basics": {
-    "name": "Full Name",
-    "headline": "Default Role Headline",
-    "email": "email@example.com",
-    "phone": "+1-555-000-0000",
-    "location": "City, Country",
-    "links": [
-      {"label": "LinkedIn", "url": "https://linkedin.com/in/..."},
-      {"label": "GitHub", "url": "https://github.com/..."},
-      {"label": "Portfolio", "url": "https://..."}
-    ]
-  },
-  "summary": "2-3 sentence baseline executive summary.",
-  "skills": {
-    "Languages & Core": ["..."],
-    "Frameworks & Libraries": ["..."],
-    "Cloud, Data & Tools": ["..."]
-  },
-  "experience": [
-    {
-      "id": "exp_1",
-      "company": "Company Name",
-      "role": "Job Title",
-      "location": "Location",
-      "dates": "MMM YYYY – Present",
-      "bullets": [
-        "Action verb + quantified impact + specific tools/methods..."
-      ]
-    }
-  ],
-  "projects": [
-    {
-      "name": "Project Name",
-      "tech": "Tech Stack",
-      "dates": "YYYY",
-      "bullets": ["Impact-focused description..."]
-    }
-  ],
-  "education": [
-    {
-      "institution": "University Name",
-      "degree": "Degree & Major",
-      "dates": "YYYY – YYYY",
-      "location": "Location",
-      "details": "GPA / Honors / Relevant Coursework"
-    }
-  ],
-  "certifications": []
-}
-```
+    "target_roles": ["Voice Over Artist", "Podcaster", "Audio Show Host"],
+    "locations": ["Hyderabad", "Remote"],
+    "seniority": "Mid-to-Senior",
+    "years_of_experience": 5
+  }
+  ```
 
 ---
 
 ### Stage 2: 3-Platform Discovery & Top 5 Selection (~1,200 tokens)
 
-1. Generate the targeted search queries across the **3 high-response platforms**:
+1. Generate targeted search queries across the **3 high-response platforms** (supporting explicit `--roles`, `--locations`, and `--keywords` overrides):
    ```bash
-   python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --generate-queries --profile .job-hunter/candidate_profile.json
+   python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --generate-queries --roles "Voice Over Artist" "Podcaster" --locations "Hyderabad" "Remote"
    ```
-2. Execute `search_web` in parallel across the 3 platforms (or if running in an agent environment without a built-in `search_web` tool, run `python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --search --profile .job-hunter/candidate_profile.json`):
+2. Execute `search_web` in parallel across the 3 platforms (or run `python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --search --roles "..."`):
    - **Platform 1 — LinkedIn Jobs:** Active role listings (`linkedin.com/jobs/view/...`)
    - **Platform 2 — Direct ATS Boards (Highest Reliability):** `boards.greenhouse.io`, `job-boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`
-   - **Platform 3 — Wellfound / YC Work at a Startup (Highest Startup Response):** `wellfound.com/jobs`, `workatastartup.com/jobs`
-3. Collect 7–10 promising direct job posting URLs matching candidate's location and experience (YoE) bracket, and inspect them:
+   - **Platform 3 — Wellfound / YC / Direct Indian Audio & Media Portals:** `wellfound.com/jobs`, `kalakaar.kukufm.com`, `creator.pocketfm.com`
+3. Collect promising direct job posting URLs matching candidate's location, titles, and experience bracket, and inspect them:
    ```bash
    python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --urls "<url1>" "<url2>" "<url3>" "<url4>" "<url5>"
    ```
@@ -138,7 +96,7 @@ python3 .agents/skills/job-hunter/scripts/parse_resume.py . --state-dir .job-hun
    ```bash
    python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --verify-browser --urls "<url1>" "<url2>" "<url3>" "<url4>" "<url5>"
    ```
-5. Select **strictly the Top 5** best-fitting, currently active jobs and record them so future runs never repeat them:
+5. Select **strictly the Top 5** best-fitting, currently active jobs and record them:
    ```bash
    python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --record-seen "<url1>" "<url2>" "<url3>" "<url4>" "<url5>"
    ```
@@ -147,39 +105,37 @@ python3 .agents/skills/job-hunter/scripts/parse_resume.py . --state-dir .job-hun
 
 ### Stage 3: Differential Resume Tailoring (0-Token PDF Compilation)
 
-Create a run folder `.job-hunter/runs/<YYYY-MM-DD_HHMM>/` and write `patches.json` containing **5 compact differential patch objects** (one for each of the 5 jobs):
+Create a run folder `.job-hunter/runs/<YYYY-MM-DD_HHMM>/` and write `patches.json` containing **5 compact differential patch objects** tailored to each job:
 
 ```json
 [
   {
     "job_index": 1,
     "company": "Company Name",
-    "role_title": "Exact Target Job Title",
-    "platform": "Direct ATS (Greenhouse) | LinkedIn | Wellfound",
+    "role_title": "Target Job Title",
+    "platform": "Direct ATS (Greenhouse) | LinkedIn | Platform Portal",
     "job_url": "https://...",
-    "match_score": "95%",
-    "target_headline": "Tailored Role Headline matching the JD",
-    "tailored_summary": "Sharp 2-sentence summary mirroring the job's core stack, domain, and outcomes.",
+    "match_score": "98%",
+    "target_headline": "Tailored Headline matching the Target Role",
+    "tailored_summary": "Sharp 2-sentence summary mirroring the JD's requirements and candidate's verified strengths.",
     "skills_override": {
-      "Core Stack (Matched to JD)": ["Top JD Skill 1", "Top JD Skill 2", "..."],
-      "Systems & Tools": ["..."],
-      "Domain & Practices": ["..."]
+      "Domain & Execution": ["Skill 1", "Skill 2"],
+      "Tools & Platforms": ["..."]
     },
     "experience_bullet_overrides": {
       "exp_1": [
-        "Re-framed top bullet 1 highlighting exact ATS keywords from the JD + original verified metric.",
-        "Re-framed top bullet 2 emphasizing relevant architecture/domain experience."
+        "Re-framed bullet emphasizing exact keywords from the role + original verified metric."
       ]
     },
-    "cover_note": "Concise 3-4 sentence high-signal note answering 'Why this role & company?' using candidate's real metrics.",
+    "cover_note": "Concise 3-4 sentence pitch answering 'Why this role & company?' using candidate's real metrics.",
     "drafted_answers": {
-      "Custom Form Question 1 (if any)": "Ready-to-paste answer"
+      "Custom Question": "Ready-to-paste answer"
     }
   }
 ]
 ```
 
-Compile all 5 standardized resumes (Markdown `.md` + HTML `.html` + Harvard/Jake's single-column ATS `.pdf`):
+Compile all 5 standardized resumes (Markdown `.md` + HTML `.html` + Single-column ATS `.pdf`):
 
 ```bash
 python3 .agents/skills/job-hunter/scripts/build_resume.py --profile .job-hunter/candidate_profile.json --patches .job-hunter/runs/<run_id>/patches.json --outdir .job-hunter/runs/<run_id>/resumes
@@ -191,19 +147,19 @@ python3 .agents/skills/job-hunter/scripts/build_resume.py --profile .job-hunter/
 
 ### Stage 4: Present the 5-Job Action & Caution Brief
 
-Present a clean, structured summary to the user with clickable file links (`file:///...` using forward slashes on both Windows and macOS) to all 5 generated PDF/MD resumes:
+Present a clean, structured summary with clickable file links (`file:///...` using forward slashes):
 
 1. **Overview Table of the 5 Selected Jobs:**
-   - `#`, **Role & Company**, **Platform**, **Match %**, **Tailored Resume Links (`[PDF](file:///...)` | `[MD](file:///...)`)**, and **Job Link**.
+   - `#`, **Role & Company**, **Platform**, **Match %**, **Tailored Resume Links (`[PDF](file:///...)` | `[MD](file:///...)`)**, and **Application Link**.
 2. **Per-Job Breakdown (1 to 5):**
    - **Why You Fit:** 1–2 sentences linking candidate's real metrics to the JD.
    - **Resume Customizations Made:** Which keywords, skills, and bullets were prioritized.
    - **What to Be Cautious About (Application Recon):**
-     - **Knockout Risks:** Visa/sponsorship restrictions, strict in-office/residency mandates, security clearance, or hard YoE filters.
-     - **Red Flags / Process Notes:** Repost/stale listing warnings, staffing agency intermediaries, required video/Loom intros, or take-home test warnings.
-     - **Required Custom Form Fields & Pre-Drafted Answers:** Any specific screening questions found on the form along with the ready-to-paste answers.
+     - **Knockout Risks:** Visa/sponsorship, strict in-office requirements, hard YoE cutoffs.
+     - **Process Notes:** Platform-specific onboarding steps, portfolio links, take-home tests.
+     - **Required Custom Form Fields & Pre-Drafted Answers:** Specific questions on the application with ready-to-paste answers.
 3. **Direct 1-Click Copyable Job URLs:**
-   Output the 5 verified live job URLs one by one in clean, copyable code blocks (e.g., ````text\nhttps://...\n````) alongside their corresponding tailored PDF link, so the user can easily copy and paste them into their browser with a single click.
+   Output the 5 verified live job URLs one by one in clean, copyable code blocks alongside their corresponding tailored PDF link.
 4. **Approval Gate Prompt:**
    Ask the user: *"Which of these 5 jobs (#1–#5) would you like me to open and pre-fill for you?"*
 
@@ -211,7 +167,7 @@ Present a clean, structured summary to the user with clickable file links (`file
 
 ### Stage 5: Approval-Gated Pre-Fill (Pause Before Submit)
 
-Once the user replies approving specific job numbers (e.g., *"Apply to 1, 3, and 4"*), run:
+Once the user approves specific job numbers (e.g., *"Apply to 1, 3, and 4"*), run:
 
 ```bash
 python3 .agents/skills/job-hunter/scripts/apply_helper.py --profile .job-hunter/candidate_profile.json --patches .job-hunter/runs/<run_id>/patches.json --resumes-dir .job-hunter/runs/<run_id>/resumes --approve 1 3 4

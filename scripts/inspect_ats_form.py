@@ -319,23 +319,34 @@ def inspect_single_url(url: str) -> dict:
     }
 
 
-def generate_queries(profile_path: Path, state_dir: Path) -> dict:
-    if not profile_path.exists():
-        raise FileNotFoundError(f"Profile not found at {profile_path}. Run parse_resume.py first.")
+def generate_queries(
+    profile_path: Path | None = None,
+    state_dir: Path = Path(".job-hunter"),
+    explicit_roles: list[str] | None = None,
+    explicit_locations: list[str] | None = None,
+    explicit_keywords: list[str] | None = None,
+) -> dict:
+    profile = {}
+    if profile_path and profile_path.exists():
+        try:
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        except Exception:
+            profile = {}
 
-    profile = json.loads(profile_path.read_text(encoding="utf-8"))
     targets = profile.get("search_targets", {})
-    roles = targets.get("target_roles", [])[:3] or ["Software Engineer"]
-    locs = targets.get("locations", [])[:2] or ["Remote"]
-    skills = []
-    for cat_skills in (profile.get("skills") or {}).values():
-        if isinstance(cat_skills, list):
-            skills.extend(cat_skills[:2])
-    top_skills = " ".join(skills[:3])
+    roles = explicit_roles or targets.get("target_roles", []) or ["Software Engineer"]
+    locs = explicit_locations or targets.get("locations", []) or ["Remote", "India"]
+    
+    skills = list(explicit_keywords or [])
+    if not skills:
+        for cat_skills in (profile.get("skills") or {}).values():
+            if isinstance(cat_skills, list):
+                skills.extend(cat_skills[:2])
+    top_skills = " ".join(skills[:3]) if skills else ""
 
     primary_role = f'"{roles[0]}"'
-    role_or_group = " OR ".join(f'"{r}"' for r in roles[:2])
-    loc_str = " OR ".join(f'"{l}"' for l in locs)
+    role_or_group = " OR ".join(f'"{r}"' for r in roles[:3])
+    loc_str = " OR ".join(f'"{l}"' for l in locs[:3])
 
     seen_path = state_dir / "seen_jobs.json"
     seen_urls = []
@@ -345,16 +356,17 @@ def generate_queries(profile_path: Path, state_dir: Path) -> dict:
         except Exception:
             pass
 
+    skill_part = f" {top_skills}" if top_skills else ""
     return {
         "candidate_roles": roles,
         "locations": locs,
         "previously_seen_count": len(seen_urls),
         "previously_seen_urls_to_skip": seen_urls[-25:],
         "recommended_search_queries": {
-            "platform_1_linkedin": f"site:linkedin.com/jobs/view ({role_or_group}) ({loc_str}) {top_skills}".strip(),
+            "platform_1_linkedin": f"site:linkedin.com/jobs/view ({role_or_group}) ({loc_str}){skill_part}".strip(),
             "platform_2_direct_ats": (
                 f"(site:boards.greenhouse.io OR site:job-boards.greenhouse.io OR site:jobs.lever.co OR site:jobs.ashbyhq.com) "
-                f"({role_or_group}) ({loc_str}) {top_skills}"
+                f"({role_or_group}) ({loc_str}){skill_part}"
             ).strip(),
             "platform_3_wellfound_yc": (
                 f"(site:wellfound.com/jobs OR site:workatastartup.com/jobs) "
@@ -532,9 +544,12 @@ def verify_browser_access(url: str, browser_bin: str = None) -> dict:
 
 def main():
     ap = argparse.ArgumentParser(description="Generate 3-platform queries, search directly, inspect ATS job URLs, and verify browser access.")
-    ap.add_argument("--generate-queries", action="store_true", help="Generate search queries from profile")
+    ap.add_argument("--generate-queries", action="store_true", help="Generate search queries from profile or explicit roles")
     ap.add_argument("--search", action="store_true", help="Run built-in 3-platform fallback web search directly")
     ap.add_argument("--profile", default=".job-hunter/candidate_profile.json", help="Path to candidate_profile.json")
+    ap.add_argument("--roles", nargs="+", help="Explicit target job titles / roles (overrides profile targets)")
+    ap.add_argument("--locations", nargs="+", help="Explicit target locations (e.g., 'Hyderabad', 'Remote', 'Bengaluru')")
+    ap.add_argument("--keywords", nargs="+", help="Explicit skills / domain keywords")
     ap.add_argument("--urls", nargs="+", help="List of job URLs to inspect in parallel")
     ap.add_argument("--verify-browser", action="store_true", help="Run headless Chrome/Edge DOM verification to check clickability and submittability")
     ap.add_argument("--state-dir", default=".job-hunter", help="Path to state directory")
@@ -558,12 +573,24 @@ def main():
         return
 
     if args.generate_queries:
-        out = generate_queries(Path(args.profile), state_dir)
+        out = generate_queries(
+            profile_path=Path(args.profile) if args.profile else None,
+            state_dir=state_dir,
+            explicit_roles=args.roles,
+            explicit_locations=args.locations,
+            explicit_keywords=args.keywords,
+        )
         print(json.dumps(out, indent=2))
         return
 
     if args.search:
-        qdata = generate_queries(Path(args.profile), state_dir)
+        qdata = generate_queries(
+            profile_path=Path(args.profile) if args.profile else None,
+            state_dir=state_dir,
+            explicit_roles=args.roles,
+            explicit_locations=args.locations,
+            explicit_keywords=args.keywords,
+        )
         seen_set = set(qdata.get("previously_seen_urls_to_skip", []))
         queries = qdata["recommended_search_queries"]
         discovered = {}

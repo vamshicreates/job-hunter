@@ -85,8 +85,9 @@ git clone https://github.com/vamshicreates/job-hunter.git .agents/skills/job-hun
 
 ### 3. How to Trigger
 
-1. Drop your resume (`.pdf`, `.docx`, or `.md`) into the `./resumes/` folder.
-2. Prompt your agent:
-   > *"Run job-hunter on my resume and find 5 matching roles."*
-3. Review the **5-Job Caution Brief** and generated **ATS PDF resumes**, then reply:
-   > *"Approve #1, #3, and #5"* to launch the browser pre-fill workflow.
+- **Mode A (Resume-Driven):** Drop your resume (`.pdf`, `.docx`, or `.md`) into `./resumes/` and prompt:
+  > *"Run job-hunter on my resume and find 5 matching roles."*
+- **Mode B (Explicit Titles & Professions):** Prompt with specific job titles and location:
+  > *"Find Voice over artist / Podcaster jobs (Indian companies, remote works)"* or *"Hunt for Content Lead roles in Hyderabad"*
+- **Mode C (Approval & Pre-Fill):** Review the **5-Job Caution Brief** and generated **ATS PDF resumes**, then reply:
+  > *"Approve #1, #3, and #5"* to launch the browser pre-fill workflow.
