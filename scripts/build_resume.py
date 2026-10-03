@@ -428,6 +428,8 @@ def main():
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+    pdf_dir = outdir / "PDFs"
+    pdf_dir.mkdir(parents=True, exist_ok=True)
     browser_bin = find_browser()
 
     if args.patches:
@@ -448,10 +450,13 @@ def main():
         md_path = outdir / f"{stem}.md"
         html_path = outdir / f"{stem}.html"
         pdf_path = outdir / f"{stem}.pdf"
+        isolated_pdf_path = pdf_dir / f"{stem}.pdf"
 
         md_path.write_text(render_markdown(tailored_data), encoding="utf-8")
         html_path.write_text(render_html(tailored_data, template_str), encoding="utf-8")
         pdf_ok = html_to_pdf(html_path, pdf_path, browser_bin)
+        if pdf_ok and pdf_path.exists():
+            shutil.copy2(pdf_path, isolated_pdf_path)
 
         generated.append(
             {
@@ -461,12 +466,14 @@ def main():
                 "markdown": str(md_path.resolve().as_posix()),
                 "html": str(html_path.resolve().as_posix()),
                 "pdf": str(pdf_path.resolve().as_posix()) if pdf_ok else None,
+                "isolated_pdf": str(isolated_pdf_path.resolve().as_posix()) if pdf_ok else None,
+                "pdf_folder": str(pdf_dir.resolve().as_posix()),
                 "pdf_rendered": pdf_ok,
                 "browser_used": browser_bin,
             }
         )
 
-    print(json.dumps({"status": "SUCCESS", "platform": sys.platform, "generated_resumes": generated}, indent=2))
+    print(json.dumps({"status": "SUCCESS", "platform": sys.platform, "pdf_folder": str(pdf_dir.resolve().as_posix()), "generated_resumes": generated}, indent=2))
 
 
 if __name__ == "__main__":

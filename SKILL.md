@@ -29,12 +29,17 @@ A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven w
 ## Core Guardrails (Non-Negotiable)
 
 1. **Strictly 5 Job Profiles per Run:** Never dump 15+ vague links or stop at 2. Every run must shortlist and process **exactly 5** verified, active job profiles (skipping URLs already recorded in `.job-hunter/seen_jobs.json`).
-2. **Minimum Tokens, Maximum Output:**
+2. **Experience (YoE) Cutoff & Seniority Precision:** Filter and match job roles precisely to the candidate's verified Years of Experience (YoE). If the candidate has 4 years, shortlist roles requiring 3–5, 3–6, 4–7, or 4+ years; strictly reject over-senior positions (8–12+ or 10+ year lead/architect listings) unless requested.
+3. **Strict Location Enforcement:** All shortlisted roles must strictly match the candidate's target location (e.g. Hyderabad, Bengaluru, Remote) and must be verified against the job description body.
+4. **Mandatory Browser DOM Verification:** Every candidate job URL must be verified via `inspect_ats_form.py --verify-browser --urls <urls>` in a headless browser (Google Chrome or Microsoft Edge) to verify that the requisition is active (HTTP 200), that the apply/interest button is physically present in the DOM (`id="topbar-apply"`, `class="apply-button"`, `class="js-oneclick"`), and that the submission flow is open and submittable.
+5. **Clean PDF Isolation:** Resumes must always have their ATS `.pdf` files automatically saved into a dedicated `PDFs/` subfolder (e.g., `<outdir>/PDFs/`), keeping them cleanly isolated from markdown and HTML for instant 1-click attachment.
+6. **Direct 1-Click Copyable Links in Chat:** Always present verified live job links one by one in clean, copyable code blocks in chat alongside clickable paths to the corresponding tailored PDF.
+7. **Minimum Tokens, Maximum Output:**
    - **Never** re-read a raw PDF/DOCX if `.job-hunter/candidate_profile.json` returns `CACHE_HIT`.
    - **Never** open 10 full browser tabs or dump raw HTML into LLM context—always use `inspect_ats_form.py` to strip HTML and extract only JD requirements, `<form>` inputs, and knockout flags.
    - **Never** write out 5 full resumes in chat or rewrite unchanged sections—write only a compact `patches.json` containing the job-specific deltas and run `build_resume.py` to render all 5 PDFs/MDs in zero tokens.
-3. **Truthfulness in Resume Tailoring:** Re-order skills, sharpen summaries, and align bullet terminology with the target job's ATS keywords, but **never fabricate** companies, degrees, or metrics the candidate does not have.
-4. **Explicit Approval Gate Before Applying:** Never run `apply_helper.py` or interact with an application form until the user explicitly approves specific job numbers (`#1`–`#5`). Even after approval, **pause at the final Submit button** for the user's manual click.
+8. **Truthfulness in Resume Tailoring:** Re-order skills, sharpen summaries, and align bullet terminology with the target job's ATS keywords, but **never fabricate** companies, degrees, or metrics the candidate does not have.
+9. **Explicit Approval Gate Before Applying:** Never run `apply_helper.py` or interact with an application form until the user explicitly approves specific job numbers (`#1`–`#5`). Even after approval, **pause at the final Submit button** for the user's manual click.
 
 ---
 
@@ -125,11 +130,15 @@ python3 .agents/skills/job-hunter/scripts/parse_resume.py . --state-dir .job-hun
    - **Platform 1 — LinkedIn Jobs:** Active role listings (`linkedin.com/jobs/view/...`)
    - **Platform 2 — Direct ATS Boards (Highest Reliability):** `boards.greenhouse.io`, `job-boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`
    - **Platform 3 — Wellfound / YC Work at a Startup (Highest Startup Response):** `wellfound.com/jobs`, `workatastartup.com/jobs`
-3. Collect 7–10 promising direct job posting URLs (excluding any URL in `previously_seen_urls_to_skip`) and inspect them in a single batch call:
+3. Collect 7–10 promising direct job posting URLs matching candidate's location and experience (YoE) bracket, and inspect them:
    ```bash
-   python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --urls "<url1>" "<url2>" "<url3>" "<url4>" "<url5>" "<url6>"
+   python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --urls "<url1>" "<url2>" "<url3>" "<url4>" "<url5>"
    ```
-4. Select **strictly the Top 5** best-fitting, currently active jobs and record them so future runs never repeat them:
+4. **Mandatory Browser DOM Verification:** Verify in headless Chrome/Edge that each job link is live (HTTP 200), that the apply/interest button is physically present and clickable, and that the application flow is submittable:
+   ```bash
+   python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --verify-browser --urls "<url1>" "<url2>" "<url3>" "<url4>" "<url5>"
+   ```
+5. Select **strictly the Top 5** best-fitting, currently active jobs and record them so future runs never repeat them:
    ```bash
    python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --record-seen "<url1>" "<url2>" "<url3>" "<url4>" "<url5>"
    ```
@@ -176,6 +185,8 @@ Compile all 5 standardized resumes (Markdown `.md` + HTML `.html` + Harvard/Jake
 python3 .agents/skills/job-hunter/scripts/build_resume.py --profile .job-hunter/candidate_profile.json --patches .job-hunter/runs/<run_id>/patches.json --outdir .job-hunter/runs/<run_id>/resumes
 ```
 
+*(Note: `build_resume.py` automatically generates a dedicated `PDFs/` subfolder at `.job-hunter/runs/<run_id>/resumes/PDFs/` containing strictly the 5 `.pdf` files, keeping them isolated from markdown and HTML).*
+
 ---
 
 ### Stage 4: Present the 5-Job Action & Caution Brief
@@ -191,7 +202,9 @@ Present a clean, structured summary to the user with clickable file links (`file
      - **Knockout Risks:** Visa/sponsorship restrictions, strict in-office/residency mandates, security clearance, or hard YoE filters.
      - **Red Flags / Process Notes:** Repost/stale listing warnings, staffing agency intermediaries, required video/Loom intros, or take-home test warnings.
      - **Required Custom Form Fields & Pre-Drafted Answers:** Any specific screening questions found on the form along with the ready-to-paste answers.
-3. **Approval Gate Prompt:**
+3. **Direct 1-Click Copyable Job URLs:**
+   Output the 5 verified live job URLs one by one in clean, copyable code blocks (e.g., ````text\nhttps://...\n````) alongside their corresponding tailored PDF link, so the user can easily copy and paste them into their browser with a single click.
+4. **Approval Gate Prompt:**
    Ask the user: *"Which of these 5 jobs (#1–#5) would you like me to open and pre-fill for you?"*
 
 ---

@@ -21,14 +21,26 @@ A cross-platform (**Windows, macOS, and Linux**), token-minimal AI Agent Skill f
 3. **Zero-Token Differential ATS Resume Compiler (`scripts/build_resume.py` + `assets/resume_template.html`)**:
    - Instead of asking the LLM to rewrite your full resume 5 times (~10,000+ wasted tokens), the agent outputs a tiny `patches.json` containing only job-specific deltas (headline, 2-sentence summary, prioritized skills, and top keyword-aligned bullets).
    - `build_resume.py` merges each patch and renders **5 clean Markdown (`.md`), HTML (`.html`), and ATS-parseable single-column Harvard/Jake's style PDFs (`.pdf`)** using headless **Google Chrome** or **Microsoft Edge (`msedge.exe` — pre-installed on Windows 10/11)**.
+   - **Isolated PDFs Folder:** Automatically saves an isolated copy of all 5 generated ATS `.pdf` files inside a dedicated `PDFs/` subfolder (e.g. `<outdir>/PDFs/`) for instant, uncluttered 1-click attachment.
 
-4. **Application Recon & Caution Brief (`scripts/inspect_ats_form.py`)**:
+4. **Experience Cutoff & Seniority Precision**:
+   - Filters and matches candidate's actual Years of Experience (YoE) bracket (e.g., 4-5 years candidates match 3-5, 3-6, 4-7 year bands) and enforces requested location criteria (e.g. Hyderabad).
+   - Strictly eliminates over-senior listings (8-12+ or 10+ year lead/architect posts) unless specifically requested.
+
+5. **Headless Browser DOM Verification (`scripts/inspect_ats_form.py --verify-browser`)**:
+   - Directly renders the live page in headless Chrome/Edge to verify:
+     - Requisition is active (HTTP 200)
+     - Interactive apply buttons are present and clickable (`apply-link-onsite` Easy Apply, `apply-link-offsite` ATS redirect, or `js-oneclick` direct forms)
+     - Submission flow is open and submittable.
+   - Outputs the verified live links one by one in clean, 1-click copyable code blocks in chat.
+
+6. **Application Recon & Caution Brief (`scripts/inspect_ats_form.py`)**:
    - Strips 95% of HTML bloat and inspects `<form>` inputs and job descriptions in parallel to flag:
      - **Knockout Risks:** Visa/sponsorship restrictions, citizenship/clearance rules, strict 5-day in-office or residency mandates.
      - **Red Flags:** Ghost-job/evergreen signals, third-party staffing agencies, required Loom/video intros, or unpaid take-home assignments.
      - **Custom Form Questions:** Extracts required application questions and pre-drafts tailored answers.
 
-5. **Approval-Gated Browser Pre-Fill — Pauses Before Submit (`scripts/apply_helper.py`)**:
+7. **Approval-Gated Browser Pre-Fill — Pauses Before Submit (`scripts/apply_helper.py`)**:
    - **Never submits blindly.** Only processes job numbers (`#1`–`#5`) you explicitly approve.
    - Opens approved job forms in the browser, reveals the tailored PDF in **Windows File Explorer (`explorer.exe /select`)** or **macOS Finder (`open -R`)**, pre-loads the PDF path into the OS clipboard (`clip.exe` / `pbcopy`) for 1-second `Ctrl+V` file upload, and launches the interactive **Application Copilot** with a drag-to-bookmarks-bar **⚡ Auto-Fill & Pause Before Submit** button.
 

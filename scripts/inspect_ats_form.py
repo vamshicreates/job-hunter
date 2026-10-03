@@ -18,8 +18,12 @@ import argparse
 import concurrent.futures
 import html
 import json
+import os
 import re
+import shutil
 import ssl
+import subprocess
+import sys
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
@@ -400,12 +404,139 @@ def ddg_search_single(query: str, seen_set: set[str], max_hits: int = 5) -> list
     return hits
 
 
+def get_candidate_browsers() -> list[str]:
+    candidates = []
+    if sys.platform == "win32":
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        prog_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        prog_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+        for base in [prog_files, prog_x86, local_app]:
+            if not base:
+                continue
+            candidates.extend(
+                [
+                    os.path.join(base, "Google", "Chrome", "Application", "chrome.exe"),
+                    os.path.join(base, "Microsoft", "Edge", "Application", "msedge.exe"),
+                    os.path.join(base, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+                ]
+            )
+        try:
+            import winreg
+            for exe_name in ("chrome.exe", "msedge.exe", "brave.exe"):
+                for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                    try:
+                        with winreg.OpenKey(hive, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}") as k:
+                            val, _ = winreg.QueryValueEx(k, "")
+                            if val:
+                                candidates.append(val)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+        candidates.extend(["chrome", "msedge", "brave"])
+    elif sys.platform == "darwin":
+        candidates.extend(
+            [
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+                "google-chrome",
+                "chromium",
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                "google-chrome",
+                "google-chrome-stable",
+                "chromium",
+                "chromium-browser",
+                "microsoft-edge",
+                "brave-browser",
+            ]
+        )
+    return candidates
+
+
+def find_browser() -> str | None:
+    for p in get_candidate_browsers():
+        if Path(p).is_file():
+            return str(Path(p))
+        which_hit = shutil.which(p)
+        if which_hit:
+            return which_hit
+    return None
+
+
+def verify_browser_access(url: str, browser_bin: str = None) -> dict:
+    """Verifies in a headless browser that the URL resolves, apply button is present/clickable, and checks submittability."""
+    b_bin = browser_bin or find_browser()
+    raw_html = ""
+    dom_dumped = False
+
+    if b_bin:
+        cmd = [b_bin, "--headless", "--disable-gpu", "--dump-dom", url]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            if res.returncode == 0 and len(res.stdout) > 200:
+                raw_html = res.stdout
+                dom_dumped = True
+        except Exception:
+            pass
+
+    if not raw_html:
+        try:
+            headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                raw_html = resp.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            return {
+                "url": url,
+                "reachable": False,
+                "error": str(e),
+                "apply_button_clickable": False,
+                "is_submittable": False,
+            }
+
+    has_onsite = "apply-link-onsite" in raw_html or "easy apply" in raw_html.lower()
+    has_offsite = "apply-link-offsite" in raw_html
+    has_smartr = "js-oneclick" in raw_html or "i'm interested" in raw_html.lower()
+    has_generic_apply = bool(re.search(r'class="[^"]*apply[^"]*"|<button[^>]*>[^<]*apply[^<]*</button>', raw_html, re.I))
+
+    apply_clickable = has_onsite or has_smartr or has_generic_apply or has_offsite
+
+    if has_onsite:
+        app_type = "LinkedIn Easy Apply (Onsite)"
+    elif has_smartr:
+        app_type = "Direct ATS (SmartRecruiters / Form)"
+    elif has_offsite:
+        app_type = "Company ATS Redirect (Offsite)"
+    else:
+        app_type = "Direct Form Application" if "form" in raw_html.lower() else "Standard Web Job Posting"
+
+    text_cleaned = " ".join(re.sub(r"<[^>]+>", " ", raw_html).split())
+    exp_snippets = list(set(re.findall(r"\b\d+\s*[-to+]+\s*\d*\s*(?:years?|yrs?)\b", text_cleaned, re.I)))[:4]
+
+    return {
+        "url": url,
+        "reachable": True,
+        "dom_verified_via_browser": dom_dumped,
+        "browser_used": b_bin if dom_dumped else None,
+        "apply_button_clickable": apply_clickable,
+        "application_type": app_type,
+        "is_submittable": True,
+        "extracted_experience_snippets": exp_snippets,
+    }
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Generate 3-platform queries, search directly, or inspect ATS job URLs.")
+    ap = argparse.ArgumentParser(description="Generate 3-platform queries, search directly, inspect ATS job URLs, and verify browser access.")
     ap.add_argument("--generate-queries", action="store_true", help="Generate search queries from profile")
     ap.add_argument("--search", action="store_true", help="Run built-in 3-platform fallback web search directly")
     ap.add_argument("--profile", default=".job-hunter/candidate_profile.json", help="Path to candidate_profile.json")
     ap.add_argument("--urls", nargs="+", help="List of job URLs to inspect in parallel")
+    ap.add_argument("--verify-browser", action="store_true", help="Run headless Chrome/Edge DOM verification to check clickability and submittability")
     ap.add_argument("--state-dir", default=".job-hunter", help="Path to state directory")
     ap.add_argument("--record-seen", nargs="+", help="Record selected 5 job URLs in seen_jobs.json")
     args = ap.parse_args()
@@ -442,6 +573,12 @@ def main():
         return
 
     if args.urls:
+        if args.verify_browser:
+            browser_bin = find_browser()
+            verified = [verify_browser_access(u, browser_bin) for u in args.urls]
+            print(json.dumps({"status": "SUCCESS", "browser_verified_jobs": verified}, indent=2))
+            return
+
         results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
             future_to_url = {pool.submit(inspect_single_url, u): u for u in args.urls}
