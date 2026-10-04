@@ -127,6 +127,8 @@ def detect_platform(url: str) -> str:
     u = url.lower()
     if "linkedin.com" in u:
         return "LinkedIn"
+    if "indeed.com" in u or "in.indeed.com" in u:
+        return "Indeed"
     if "greenhouse.io" in u:
         return "Direct ATS (Greenhouse)"
     if "lever.co" in u:
@@ -241,6 +243,10 @@ def analyze_cautions(full_text: str, form_fields: list, url: str) -> dict:
     if "linkedin.com" in url.lower():
         cautions.append(
             "LinkedIn Auth Gate: Requires active LinkedIn login session for Easy Apply, or click through to the company's external ATS link."
+        )
+    if "indeed.com" in url.lower():
+        cautions.append(
+            "Indeed Application: Verify whether posting uses Indeed Direct Apply (1-click) or redirects to company ATS career portal."
         )
 
     return {
@@ -371,6 +377,10 @@ def generate_queries(
             "platform_3_wellfound_yc": (
                 f"(site:wellfound.com/jobs OR site:workatastartup.com/jobs) "
                 f"({primary_role}) ({loc_str})"
+            ).strip(),
+            "platform_4_indeed": (
+                f"(site:indeed.com/viewjob OR site:in.indeed.com/viewjob OR site:in.indeed.com/job) "
+                f"({role_or_group}) ({loc_str}){skill_part}"
             ).strip(),
         },
     }
@@ -512,14 +522,17 @@ def verify_browser_access(url: str, browser_bin: str = None) -> dict:
             }
 
     has_onsite = "apply-link-onsite" in raw_html or "easy apply" in raw_html.lower()
-    has_offsite = "apply-link-offsite" in raw_html
+    has_indeed = "indeed-apply" in raw_html.lower() or "indeedapply" in raw_html.lower() or "apply on indeed" in raw_html.lower()
+    has_offsite = "apply-link-offsite" in raw_html or "apply on company site" in raw_html.lower()
     has_smartr = "js-oneclick" in raw_html or "i'm interested" in raw_html.lower()
     has_generic_apply = bool(re.search(r'class="[^"]*apply[^"]*"|<button[^>]*>[^<]*apply[^<]*</button>', raw_html, re.I))
 
-    apply_clickable = has_onsite or has_smartr or has_generic_apply or has_offsite
+    apply_clickable = has_onsite or has_indeed or has_smartr or has_generic_apply or has_offsite
 
     if has_onsite:
         app_type = "LinkedIn Easy Apply (Onsite)"
+    elif has_indeed:
+        app_type = "Indeed Direct Apply (Onsite/Fast)"
     elif has_smartr:
         app_type = "Direct ATS (SmartRecruiters / Form)"
     elif has_offsite:

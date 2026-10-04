@@ -11,11 +11,12 @@ A cross-platform (**Windows, macOS, and Linux**), token-minimal AI Agent Skill f
    - **Cross-Platform Out-of-the-Box:** Uses pure-Python `zipfile` + XML for `.docx`, native Quartz `PDFKit` on macOS, and a built-in pure-Python `zlib` PDF stream extractor (`extract_pdf_pure_python`) + `pypdf` fallback on Windows/Linux.
    - Subsequent runs verify the file's SHA-256 hash and return `CACHE_HIT` in ~200 tokens without re-reading the raw document.
 
-2. **3-Platform Discovery & Strictly 5 Jobs per Run (`scripts/inspect_ats_form.py`)**:
-   - Generates targeted search queries across the **3 highest-response job sources**:
+2. **4-Platform Discovery & Strictly 5 Jobs per Run (`scripts/inspect_ats_form.py`)**:
+   - Generates targeted search queries across the **4 highest-response job sources**:
      1. **LinkedIn Jobs** (`linkedin.com/jobs/view/...`)
-     2. **Direct ATS Boards** (`boards.greenhouse.io`, `job-boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`)
-     3. **Wellfound / YC Work at a Startup** (`wellfound.com/jobs`, `workatastartup.com/jobs`)
+     2. **Indeed India & Global** (`in.indeed.com/viewjob`, `indeed.com/viewjob`)
+     3. **Direct ATS Boards** (`boards.greenhouse.io`, `job-boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`)
+     4. **Wellfound / YC Work at a Startup** (`wellfound.com/jobs`, `workatastartup.com/jobs`)
    - Deduplicates against `.job-hunter/seen_jobs.json` so every run surfaces **strictly 5 fresh, active job profiles**.
 
 3. **Zero-Token Differential ATS Resume Compiler (`scripts/build_resume.py` + `assets/resume_template.html`)**:

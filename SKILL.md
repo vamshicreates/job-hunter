@@ -1,20 +1,20 @@
 ---
 name: job-hunter
-description: Cross-platform (Windows, macOS, Linux) token-minimal job hunting, standardized ATS resume tailoring, application caution recon, and approval-gated browser pre-fill skill. Activate whenever the user provides a resume in the local folder, provides specific job titles/professions to search for (e.g., "Voice over artist", "Podcaster", "Content Manager in Hyderabad"), asks to find matching jobs, hunt for job openings, tailor their resume for top roles, analyze application risks/cautions, or apply to jobs. Always finds strictly 5 high-fit job profiles per run across LinkedIn, Direct ATS Boards (Greenhouse/Lever/Ashby), and Wellfound/YC.
+description: Cross-platform (Windows, macOS, Linux) token-minimal job hunting, standardized ATS resume tailoring, application caution recon, and approval-gated browser pre-fill skill. Activate whenever the user provides a resume in the local folder, provides specific job titles/professions to search for (e.g., "Voice over artist", "Podcaster", "Content Manager in Hyderabad"), asks to find matching jobs, hunt for job openings, tailor their resume for top roles, analyze application risks/cautions, or apply to jobs. Always finds strictly 5 high-fit job profiles per run across LinkedIn, Indeed (in.indeed.com), Direct ATS Boards (Greenhouse/Lever/Ashby), and Wellfound/YC.
 ---
 
 # Job Hunter (`job-hunter`)
 
-A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven workflow that searches across the top 3 high-response platforms using either **local candidate resumes** or **explicit user-provided job titles/professions**, finds **strictly 5 high-fit, active job profiles**, generates **5 standardized ATS-friendly resumes (PDF + Markdown + HTML)** via differential JSON patching, produces an **Application Caution & Knockout Brief**, and pre-fills approved applications in the browser (pausing at the final **Submit** button).
+A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven workflow that searches across the top 4 high-response platforms (including **Indeed / in.indeed.com**) using either **local candidate resumes** or **explicit user-provided job titles/professions**, finds **strictly 5 high-fit, active job profiles**, generates **5 standardized ATS-friendly resumes (PDF + Markdown + HTML)** via differential JSON patching, produces an **Application Caution & Knockout Brief**, and pre-fills approved applications in the browser (pausing at the final **Submit** button).
 
 ---
 
 ## Supported Search Modes
 
 1. **Explicit Title / Profession Mode (User-Specified Roles):**
-   - Whenever the user gives specific job titles, professions, or query pivots (e.g. *"Voice over artist"*, *"Podcaster"*, *"Find Content Lead or Social Media Manager roles in Hyderabad"*, *"Senior DevOps Engineer"*), the skill immediately prioritizes and hunts for those exact job titles across the top 3 platforms.
+   - Whenever the user gives specific job titles, professions, or query pivots (e.g. *"Voice over artist"*, *"Podcaster"*, *"Find Content Lead or Social Media Manager roles in Hyderabad"*, *"Senior DevOps Engineer"*), the skill immediately prioritizes and hunts for those exact job titles across the top 4 platforms.
    - If a candidate profile already exists or is provided, the skill automatically updates `search_targets.target_roles` and tailors the 5 ATS resumes specifically to those requested titles.
-   - If no resume is provided, the skill still performs the full 3-platform discovery, headless browser DOM verification, and outputs the top 5 verified live job requisitions.
+   - If no resume is provided, the skill still performs the full multi-platform discovery, headless browser DOM verification, and outputs the top 5 verified live job requisitions.
 2. **Resume-Driven Mode:**
    - Reads the local candidate resume once, caches the structured profile in `.job-hunter/candidate_profile.json`, extracts target titles and YoE, and finds matching opportunities.
 3. **Hybrid Re-Targeting Mode:**
@@ -45,7 +45,7 @@ A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven w
 1. **Strictly 5 Job Profiles per Run:** Never dump 15+ vague links or stop at 2. Every run must shortlist and process **exactly 5** verified, active job profiles (skipping URLs already recorded in `.job-hunter/seen_jobs.json`).
 2. **Explicit Title & Seniority Precision:** When the user supplies explicit job titles (e.g., "Voice Over Artist", "Podcaster"), match those exact titles. Filter experience (YoE) precisely to the candidate's verified background.
 3. **Strict Location Enforcement:** All shortlisted roles must strictly match the candidate's target location (e.g. Hyderabad, Bengaluru, Remote, Indian companies only) and must be verified against the job description body.
-4. **Mandatory Browser DOM Verification:** Every candidate job URL must be verified via `inspect_ats_form.py --verify-browser --urls <urls>` in a headless browser (Google Chrome or Microsoft Edge) to verify that the requisition is active (HTTP 200), that the apply/interest button is physically present in the DOM (`id="topbar-apply"`, `class="apply-button"`, `class="js-oneclick"`), and that the submission flow is open and submittable.
+4. **Mandatory Browser DOM Verification:** Every candidate job URL must be verified via `inspect_ats_form.py --verify-browser --urls <urls>` in a headless browser (Google Chrome or Microsoft Edge) to verify that the requisition is active (HTTP 200), that the apply/interest button is physically present in the DOM (`id="topbar-apply"`, `class="apply-button"`, `class="js-oneclick"`, or `indeed-apply`), and that the submission flow is open and submittable.
 5. **Clean PDF Isolation:** Resumes must always have their ATS `.pdf` files automatically saved into a dedicated `PDFs/` subfolder (e.g., `<outdir>/PDFs/`), keeping them cleanly isolated from markdown and HTML for instant 1-click attachment.
 6. **Direct 1-Click Copyable Links in Chat:** Always present verified live job links one by one in clean, copyable code blocks in chat alongside clickable paths to the corresponding tailored PDF.
 7. **Minimum Tokens, Maximum Output:**
@@ -78,16 +78,17 @@ A cross-platform (**Windows, macOS, and Linux**), token-minimal, script-driven w
 
 ---
 
-### Stage 2: 3-Platform Discovery & Top 5 Selection (~1,200 tokens)
+### Stage 2: 4-Platform Discovery & Top 5 Selection (~1,200 tokens)
 
-1. Generate targeted search queries across the **3 high-response platforms** (supporting explicit `--roles`, `--locations`, and `--keywords` overrides):
+1. Generate targeted search queries across the **4 high-response platforms** (supporting explicit `--roles`, `--locations`, and `--keywords` overrides):
    ```bash
    python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --generate-queries --roles "Voice Over Artist" "Podcaster" --locations "Hyderabad" "Remote"
    ```
-2. Execute `search_web` in parallel across the 3 platforms (or run `python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --search --roles "..."`):
+2. Execute `search_web` in parallel across the 4 platforms (or run `python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --search --roles "..."`):
    - **Platform 1 — LinkedIn Jobs:** Active role listings (`linkedin.com/jobs/view/...`)
-   - **Platform 2 — Direct ATS Boards (Highest Reliability):** `boards.greenhouse.io`, `job-boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`
-   - **Platform 3 — Wellfound / YC / Direct Indian Audio & Media Portals:** `wellfound.com/jobs`, `kalakaar.kukufm.com`, `creator.pocketfm.com`
+   - **Platform 2 — Indeed India & Global:** Active role listings (`in.indeed.com/viewjob`, `indeed.com/viewjob`, `in.indeed.com/job`)
+   - **Platform 3 — Direct ATS Boards (Highest Reliability):** `boards.greenhouse.io`, `job-boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`
+   - **Platform 4 — Wellfound / YC / Direct Indian Portals:** `wellfound.com/jobs`, `workatastartup.com/jobs`
 3. Collect promising direct job posting URLs matching candidate's location, titles, and experience bracket, and inspect them:
    ```bash
    python3 .agents/skills/job-hunter/scripts/inspect_ats_form.py --urls "<url1>" "<url2>" "<url3>" "<url4>" "<url5>"
